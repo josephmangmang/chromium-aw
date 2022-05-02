@@ -282,6 +282,10 @@ public class AwTestContainerView extends FrameLayout {
         mAwContents.destroy();
     }
 
+    public HardwareView getHardwareView() {
+        return mHardwareView;
+    }
+
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
