@@ -142,7 +142,9 @@ class WebView(context: Context) : FrameLayout(context) {
     fun evaluateJavascript(script: String) {
         awContents.evaluateJavaScript(script, null)
     }
-
+    fun getContainerView(): AwTestContainerView{
+        return awTestContainerView
+    }
     companion object {
         // https://chromium.googlesource.com/chromium/src.git/+/refs/tags/93.0.4577.82/third_party/blink/renderer/platform/runtime_enabled_features.json5
         private val COMMAND =

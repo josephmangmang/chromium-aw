@@ -8,6 +8,7 @@ import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -18,6 +19,7 @@ import android.os.HandlerThread;
 import android.view.DragEvent;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.PixelCopy;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -26,6 +28,9 @@ import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
+import android.widget.Toast;
+
+import androidx.annotation.RequiresApi;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.gfx.AwDrawFnImpl;
@@ -35,7 +40,7 @@ import org.chromium.content_public.browser.WebContents;
 
 /**
  * A View used for testing the AwContents internals.
- *
+ * <p>
  * This class takes the place android.webkit.WebView would have in the production configuration.
  */
 public class AwTestContainerView extends FrameLayout {
@@ -73,6 +78,10 @@ public class AwTestContainerView extends FrameLayout {
                 mLock.notifyAll();
             }
         }
+    }
+
+    public interface OnSurfaceViewCaptureResultListener {
+        void onCaptured(Bitmap bitmap);
     }
 
     public static void installDrawFnFunctionTable(boolean useVulkan) {
@@ -134,13 +143,16 @@ public class AwTestContainerView extends FrameLayout {
         }
 
         @Override
-        public void surfaceCreated(SurfaceHolder holder) {}
+        public void surfaceCreated(SurfaceHolder holder) {
+        }
 
         @Override
         public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             if (holder == mOverlaysSurfaceView.getHolder()) {
                 Surface surface = holder.getSurface();
-                sRenderThreadHandler.post(() -> { mContextManager.setOverlaysSurface(surface); });
+                sRenderThreadHandler.post(() -> {
+                    mContextManager.setOverlaysSurface(surface);
+                });
                 return;
             }
 
@@ -150,7 +162,9 @@ public class AwTestContainerView extends FrameLayout {
 
             Surface surface = holder.getSurface();
             sRenderThreadHandler.post(
-                    () -> { mContextManager.setSurface(surface, width, height); });
+                    () -> {
+                        mContextManager.setSurface(surface, width, height);
+                    });
 
             if (mReadyToRenderCallback != null) {
                 mReadyToRenderCallback.run();
@@ -197,7 +211,7 @@ public class AwTestContainerView extends FrameLayout {
         }
 
         private void drawOnRt(WaitableEvent syncEvent, int functor, int width, int height,
-                int scrollX, int scrollY) {
+                              int scrollX, int scrollY) {
             mContextManager.sync(functor, false);
             syncEvent.signal();
             mContextManager.draw(width, height, scrollX, scrollY, /*readbackQuadrants=*/false);
@@ -205,6 +219,7 @@ public class AwTestContainerView extends FrameLayout {
     }
 
     private static boolean sCreatedOnce;
+
     private HardwareView createHardwareViewOnlyOnce(Context context) {
         if (sCreatedOnce) return null;
         sCreatedOnce = true;
@@ -222,8 +237,8 @@ public class AwTestContainerView extends FrameLayout {
                             FrameLayout.LayoutParams.MATCH_PARENT));
             addView(mHardwareView,
                     new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT));
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT));
         } else {
             setLayerType(LAYER_TYPE_SOFTWARE, null);
         }
@@ -282,9 +297,40 @@ public class AwTestContainerView extends FrameLayout {
         mAwContents.destroy();
     }
 
-    public HardwareView getHardwareView() {
-        return mHardwareView;
+    public void captureSurfaceView(OnSurfaceViewCaptureResultListener onSurfaceViewCaptureResultListener) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                SurfaceView surfaceView = mHardwareView;
+
+                Bitmap bitmap = Bitmap.createBitmap(getWidth(), getHeight(), Bitmap.Config.ARGB_8888);
+
+                final int[] locationOfViewInWindow = new int[2];
+                this.getLocationInWindow(locationOfViewInWindow);
+                PixelCopy.request(surfaceView, bitmap, copyResult -> {
+                    if (copyResult == PixelCopy.SUCCESS) {
+                        onSurfaceViewCaptureResultListener.onCaptured(bitmap);
+                    } else {
+                        onSurfaceViewCaptureResultListener.onCaptured(null);
+                    }
+                }, new Handler());
+            } else {
+                View rootView = getRootView();
+                rootView.buildDrawingCache(true);
+                rootView.setDrawingCacheEnabled(true);
+//                Bitmap createBitmap = Bitmap.createBitmap(rootView.getWidth(), rootView.getHeight(), Bitmap.Config.ARGB_8888);
+
+                Bitmap createBitmap = Bitmap.createBitmap(rootView.getDrawingCache());
+//                rootView.draw(new Canvas(createBitmap));
+                rootView.setDrawingCacheEnabled(false);
+                onSurfaceViewCaptureResultListener.onCaptured(createBitmap);
+            }
+        } catch (Exception e) {
+            Toast.makeText(getContext(), e.getMessage(), Toast.LENGTH_SHORT).show();
+            e.printStackTrace();
+            onSurfaceViewCaptureResultListener.onCaptured(null);
+        }
     }
+
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
@@ -483,13 +529,13 @@ public class AwTestContainerView extends FrameLayout {
 
         @Override
         public void overScrollBy(int deltaX, int deltaY,
-                int scrollX, int scrollY,
-                int scrollRangeX, int scrollRangeY,
-                int maxOverScrollX, int maxOverScrollY,
-                boolean isTouchEvent) {
+                                 int scrollX, int scrollY,
+                                 int scrollRangeX, int scrollRangeY,
+                                 int maxOverScrollX, int maxOverScrollY,
+                                 boolean isTouchEvent) {
             // We're intentionally not calling super.scrollTo here to make testing easier.
             AwTestContainerView.this.overScrollBy(deltaX, deltaY, scrollX, scrollY,
-                     scrollRangeX, scrollRangeY, maxOverScrollX, maxOverScrollY, isTouchEvent);
+                    scrollRangeX, scrollRangeY, maxOverScrollX, maxOverScrollY, isTouchEvent);
         }
 
         @Override
@@ -508,6 +554,7 @@ public class AwTestContainerView extends FrameLayout {
         }
 
         @Override
-        public void super_startActivityForResult(Intent intent, int requestCode) {}
+        public void super_startActivityForResult(Intent intent, int requestCode) {
+        }
     }
 }
