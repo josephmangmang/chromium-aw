@@ -294,7 +294,11 @@ public class AwTestContainerView extends FrameLayout {
     }
 
     public void destroy() {
+        mAwContents.removeAllJavaScriptInterface();
         mAwContents.destroy();
+        removeView(mHardwareView);
+        mHardwareView = null;
+        sCreatedOnce = false;
     }
 
     public void captureSurfaceView(OnSurfaceViewCaptureResultListener onSurfaceViewCaptureResultListener) {

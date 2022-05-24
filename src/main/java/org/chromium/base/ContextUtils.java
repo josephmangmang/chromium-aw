@@ -176,4 +176,8 @@ public class ContextUtils {
 
         return null;
     }
+
+    public static boolean isMainProcess() {
+        return !getProcessName().contains(":");
+    }
 }

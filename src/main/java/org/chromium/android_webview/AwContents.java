@@ -130,6 +130,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
@@ -1645,6 +1646,16 @@ public class AwContents implements SmartClipProvider {
         }
         mIsDestroyed = true;
         PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> destroyNatives());
+    }
+
+    public void removeAllJavaScriptInterface() {
+        Set<String> keys = getJavascriptInjector()
+                .getInterfaces()
+                .keySet();
+        for (String key :
+                keys) {
+            removeJavascriptInterface(key);
+        }
     }
 
     /**
